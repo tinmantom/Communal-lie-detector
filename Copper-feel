@@ -1,0 +1,115 @@
+
+/*
+ * 
+ *Interactive lighting exhibit inspired by the "musical bench" instructable.
+ *Two copper probes are held by a human (or chain of humans) - the resistance of the human(s) forms half of a voltage divider
+ *the other half being a 39k fixed resistor.
+ *The voltage divider is pulled high by the vref pin - to avoid noise
+ *The resulting resistance measurment is calibrated with a fixed offset and a variable gain (set by a potentiometer 
+ *on another analog-in pin)
+ *The calibrated figure is used to set the colour of a string of l.e.d.s 
+ *No-connection=all l.e.d.s off
+ *One human = l.e.d.s red
+ *Lots of humans (around 8) = l.e.d.s green
+ *
+ *Written by Tom Dixon March 2016
+*/
+#include "Adafruit_WS2801.h"
+#include "SPI.h" 
+#ifdef __AVR_ATtiny85__
+ #include <avr/power.h>
+#endif
+
+uint8_t dataPin  = 3;    // White wire 
+uint8_t clockPin = 5;    // Green wire
+
+Adafruit_WS2801 strip = Adafruit_WS2801(97, dataPin, clockPin);
+
+int timer=0; 
+long resistanceTotal,resistanceAverage;
+int timeout=150;
+int offset=150;
+float gain=0.3; //works quite well but is obviously overwritten by the pot-reading fairly quickly!
+int colourCalibrated;
+int colourOld; //for smoothly fading between shades
+int colourDif;
+int displayColour;
+void setup() 
+{
+  #if defined(__AVR_ATtiny85__) && (F_CPU == 16000000L)
+  clock_prescale_set(clock_div_1); // Enable 16 MHz on Trinket
+  #endif
+
+  strip.begin();
+ 
+  // Update LED contents, to start they are all 'off'
+  strip.show();
+  Serial.begin(9600);
+}
+
+void loop()
+
+{
+ while (timer<=timeout)
+       {
+        int resistance=analogRead(A2); 
+        delay(5);
+
+        if (resistance>=1020)     //the probes are not connected at all so lets restart the counter and make the strip black. 
+           {
+            timer=0;
+            resistanceTotal=0;
+            for (int i=0; i < strip.numPixels(); i++)
+                {
+                 strip.setPixelColor(i, 0,0,0); 
+                }
+            strip.show();
+           }
+        else 
+            {
+              timer=timer+1;
+              resistanceTotal=resistanceTotal+resistance;
+            }
+       }
+ resistanceAverage=resistanceTotal/timeout;
+ timer=0;
+ resistanceTotal=0;
+ //Serial.print(resistanceAverage);
+ //Serial.print(" ");
+ gain=(analogRead(A5) * 0.000977517);   //get a fresh reading off the pot to scale the colour response.
+ Serial.print(gain);
+ Serial.print(" ");
+ colourCalibrated=((resistanceAverage-offset)*gain);
+ if (colourCalibrated<=0)
+    {
+      colourCalibrated=0;
+    }
+ if (colourCalibrated>=255)
+    {
+      colourCalibrated=255;
+    }
+
+ displayLights(colourCalibrated);
+ Serial.println(colourCalibrated);
+}
+
+//subroutine to display
+int displayLights(int colour) 
+{
+colourDif=colourOld-colour;
+
+ for (int j=0; j<100; j++) //lets fade from the old colour to the new one in 100 steps eh?
+     {
+       displayColour=colourOld-(0.01*j*colourDif);
+      for (int i=0; i < strip.numPixels(); i++)
+          {
+           strip.setPixelColor(i, (240 - displayColour) ,displayColour,0);
+           //Serial.print(displayColour);
+            //Serial.print(" ");
+          }
+      strip.show();
+      delay(1);
+     }
+ colourOld=colour;
+ delay(10);
+}  
